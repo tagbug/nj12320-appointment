@@ -200,42 +200,45 @@ try {
     console.log('读取配置文件失败...', e);
 }
 
+async function processLogin() {
+    await testLogin();
+    let captchaSuccess = false;
+    while (!captchaSuccess) {
+        // 验证码识别
+        console.log('开始获取验证码...');
+        const captcha = await recognizeCaptcha(captchaUrl);
+        if (config.debugMode) {
+            console.log(`验证码识别结果：${captcha}`);
+        }
+        // 登录操作
+        console.log('正在登录...');
+        const username = encrypt(config.username);
+        const password = encrypt(md5(config.password));
+        if (config.debugMode) {
+            console.log(`原始用户名：${config.username}，加密后：${username}`);
+            console.log(`原始密码：${config.password}，加密后：${password}`);
+        }
+        const loginRes = await login(username, password, captcha);
+        if (config.debugMode) {
+            console.log(`登录结果：`, loginRes);
+        }
+        if (loginRes.message === '验证码输入不正确！') {
+            console.log('验证码识别失败，自动重试...');
+            continue;
+        }
+        if (loginRes.message !== 'success') {
+            throw new Error('登录失败，返回信息：' + loginRes.message);
+        } else {
+            captchaSuccess = true;
+        }
+    }
+}
+
 async function main() {
     if (config === null) {
         return;
     }
     try {
-        await testLogin();
-        let captchaSuccess = false;
-        while (!captchaSuccess) {
-            // 验证码识别
-            console.log('开始获取验证码...');
-            const captcha = await recognizeCaptcha(captchaUrl);
-            if (config.debugMode) {
-                console.log(`验证码识别结果：${captcha}`);
-            }
-            // 登录操作
-            console.log('正在登录...');
-            const username = encrypt(config.username);
-            const password = encrypt(md5(config.password));
-            if (config.debugMode) {
-                console.log(`原始用户名：${config.username}，加密后：${username}`);
-                console.log(`原始密码：${config.password}，加密后：${password}`);
-            }
-            const loginRes = await login(username, password, captcha);
-            if (config.debugMode) {
-                console.log(`登录结果：`, loginRes);
-            }
-            if (loginRes.message === '验证码输入不正确！') {
-                console.log('验证码识别失败，自动重试...');
-                continue;
-            }
-            if (loginRes.message !== 'success') {
-                throw new Error('登录失败，返回信息：' + loginRes.message);
-            } else {
-                captchaSuccess = true;
-            }
-        }
         // 查询可预约日期
         console.log('正在查询可预约日期...');
         const availableDate = await queryAvailableDate(config.hoscode, config.docid);
@@ -286,10 +289,10 @@ async function main() {
         for (let date of dateInfo) {
             console.log(date.type + "：");
             for (let time of timeInfo[dateInfo.indexOf(date)]) {
+                let url = generateReservationUrl(date, time);
                 if (time.state !== 1) {
-                    continue;
+                    url = '[可能不可预约] ' + url;
                 }
-                const url = generateReservationUrl(date, time);
                 console.log(url);
             }
         }
@@ -309,6 +312,8 @@ async function main() {
 (async function () {
     // 初始化tesseract.js
     await initWorker();
+    // 登录，刷新cookie
+    await processLogin();
 
     if (config) {
         if (config.loop) {
